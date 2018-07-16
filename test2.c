@@ -4,6 +4,7 @@
 
 #include <glib/gprintf.h>
 #include <libgnome-desktop/gnome-rr.h>
+#include <mcheck.h>
 
 volatile sig_atomic_t alive = 1;
 
@@ -13,6 +14,8 @@ void interrupted(int sig) {
 }
 
 int main(int argc, char* argv[]) {
+    mtrace();
+
     GdkScreen* gdk_screen;
     {
         gdk_init(&argc, &argv);
@@ -63,10 +66,13 @@ int main(int argc, char* argv[]) {
             rss0 = rss;
         }
 
-        g_autoptr(GError) error = NULL;
-        if (gnome_rr_screen_refresh(grr_screen, &error) == FALSE && error) {
-            g_error("failed to refresh screens: %s", error->message);
-            return 1;
+        {
+            g_autoptr(GError) error = NULL;
+            gboolean r = gnome_rr_screen_refresh(grr_screen, &error);
+            if (r == FALSE && error) {
+                g_error("failed to refresh screens: %s", error->message);
+                return 1;
+            }
         }
     }
 }
