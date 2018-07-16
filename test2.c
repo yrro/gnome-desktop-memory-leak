@@ -2,9 +2,55 @@
 
 #include <errno.h>
 
+#include <sys/types.h>
+#include <sys/syscall.h>
+
 #include <glib/gprintf.h>
 #include <libgnome-desktop/gnome-rr.h>
-#include <mcheck.h>
+#include <malloc.h>
+
+void** old_malloc_hook;
+void** old_free_hook;
+
+void* my_malloc_hook(size_t, const void*);
+void my_free_hook(void*, const void*);
+
+void malloc_hook_start(void) {
+    old_malloc_hook = __malloc_hook;
+    old_free_hook = __free_hook;
+    __malloc_hook = my_malloc_hook;
+    __free_hook = my_free_hook;
+}
+
+void* my_malloc_hook(size_t size, const void* caller) {
+    void *result;
+    __malloc_hook = old_malloc_hook;
+    __free_hook = old_free_hook;
+    result = malloc(size);
+    old_malloc_hook = __malloc_hook;
+    old_free_hook = __free_hook;
+    printf("malloc of %u by %p (thread %ld) returns %p\n", size, caller, syscall(__NR_gettid), result);
+    __malloc_hook = my_malloc_hook;
+    __free_hook = my_free_hook;
+    return result;
+}
+
+void my_free_hook (void *ptr, const void *caller)
+{
+  __malloc_hook = old_malloc_hook;
+  __free_hook = old_free_hook;
+  free (ptr);
+  old_malloc_hook = __malloc_hook;
+  old_free_hook = __free_hook;
+  printf ("free by %p (thread %ld) of %p\n", caller, syscall(__NR_gettid), ptr);
+  __malloc_hook = my_malloc_hook;
+  __free_hook = my_free_hook;
+}
+
+void malloc_hook_stop(void) {
+    __malloc_hook = old_malloc_hook;
+    __free_hook = old_free_hook;
+}
 
 volatile sig_atomic_t alive = 1;
 
@@ -68,7 +114,9 @@ int main(int argc, char* argv[]) {
 
         {
             g_autoptr(GError) error = NULL;
+            malloc_hook_start();
             gboolean r = gnome_rr_screen_refresh(grr_screen, &error);
+            malloc_hook_stop();
             if (r == FALSE && error) {
                 g_error("failed to refresh screens: %s", error->message);
                 return 1;
